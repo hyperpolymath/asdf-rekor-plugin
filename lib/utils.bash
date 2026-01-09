@@ -57,11 +57,16 @@ list_all_versions() {
 
 get_download_url() {
   local version="$1"
-  local os="$(get_platform)"
-  local Os="$(uname -s)"
-  local os_alt="$(get_platform_alt)"
-  local arch="$(get_arch)"
-  local arch_alt="$(get_arch_alt)"
+  local os
+  os="$(get_platform)"
+  local Os
+  Os="$(uname -s)"
+  local os_alt
+  os_alt="$(get_platform_alt)"
+  local arch
+  arch="$(get_arch)"
+  local arch_alt
+  arch_alt="$(get_arch_alt)"
 
   local pattern="rekor-cli-{os}-{arch}"
   local asset_name
