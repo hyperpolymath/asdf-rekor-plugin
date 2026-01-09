@@ -1,15 +1,80 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -euo pipefail
-readonly REPO="sigstore/rekor"
-export TOOL_NAME="rekor" TOOL_CMD="rekor-cli"
-log_info() { echo "[asdf-rekor] $*" >&2; }
-fail() { echo "[asdf-rekor] ERROR: $*" >&2; exit 1; }
-get_platform() { case "$(uname -s)" in Linux*) echo "linux" ;; Darwin*) echo "darwin" ;; *) fail "Unsupported" ;; esac; }
-get_arch() { case "$(uname -m)" in x86_64|amd64) echo "amd64" ;; aarch64|arm64) echo "arm64" ;; *) fail "Unsupported" ;; esac; }
-curl_wrapper() { curl --silent --fail --location --retry 3 ${GITHUB_TOKEN:+--header "Authorization: token ${GITHUB_TOKEN}"} "$@"; }
-download_file() { curl --fail --location --retry 3 -o "$2" ${GITHUB_TOKEN:+--header "Authorization: token ${GITHUB_TOKEN}"} "$1"; }
-list_all_versions() { curl_wrapper "https://api.github.com/repos/${REPO}/releases?per_page=100" | grep -oE '"tag_name":\s*"v[0-9]+\.[0-9]+\.[0-9]+"' | sed 's/"tag_name":\s*"v\([^"]*\)"/\1/' | sort -t. -k1,1n -k2,2n -k3,3n | tr '\n' ' '; }
-get_latest_stable() { list_all_versions | tr ' ' '\n' | grep -v '^$' | tail -1; }
-get_download_url() { local v="$1" p a; p="$(get_platform)"; a="$(get_arch)"; echo "https://github.com/${REPO}/releases/download/v${v}/rekor-cli-${p}-${a}"; }
-check_dependencies() { command -v curl &>/dev/null || fail "curl required"; }
+
+TOOL_NAME="rekor"
+TOOL_REPO="sigstore/rekor"
+BINARY_NAME="rekor-cli"
+
+fail() {
+  echo -e "\e[31mFail:\e[m $*" >&2
+  exit 1
+}
+
+get_platform() {
+  local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$os" in
+    darwin) echo "darwin" ;;
+    linux) echo "linux" ;;
+    *) fail "Unsupported OS: $os" ;;
+  esac
+}
+
+get_arch() {
+  local arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) echo "amd64" ;;
+    aarch64|arm64) echo "arm64" ;;
+    *) fail "Unsupported architecture: $arch" ;;
+  esac
+}
+
+list_all_versions() {
+  curl -sL "https://api.github.com/repos/$TOOL_REPO/releases" |
+    grep -oE '"tag_name": "[^"]+"' |
+    sed 's/"tag_name": "v\?//' |
+    sed 's/"//' |
+    grep -E '^[0-9]' |
+    sort -V
+}
+
+get_download_url() {
+  local version="$1"
+  local os="$(get_platform)"
+  local arch="$(get_arch)"
+
+  # Try with v prefix first, then without
+  local asset_name
+  asset_name="$(echo 'rekor-cli-{os}-{arch}' | sed "s/{version}/$version/g" | sed "s/{os}/$os/g" | sed "s/{arch}/$arch/g" | sed "s/{binary}/$BINARY_NAME/g")"
+
+  local url="https://github.com/$TOOL_REPO/releases/download/v$version/$asset_name"
+
+  # Check if URL exists
+  if curl -sfLI "$url" >/dev/null 2>&1; then
+    echo "$url"
+  else
+    # Try without v prefix
+    url="https://github.com/$TOOL_REPO/releases/download/$version/$asset_name"
+    echo "$url"
+  fi
+}
+
+download_release() {
+  local version="$1"
+  local download_path="$2"
+  local url
+  url="$(get_download_url "$version")"
+
+  echo "Downloading $TOOL_NAME $version from $url"
+  curl -fsSL "$url" -o "$download_path/$BINARY_NAME" || fail "Download failed"
+  chmod +x "$download_path/$BINARY_NAME"
+}
+
+install_version() {
+  local version="$1"
+  local install_path="$2"
+
+  mkdir -p "$install_path/bin"
+  cp "$ASDF_DOWNLOAD_PATH/$BINARY_NAME" "$install_path/bin/"
+  chmod +x "$install_path/bin/$BINARY_NAME"
+}
